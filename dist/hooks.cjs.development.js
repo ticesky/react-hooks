@@ -12,8 +12,8 @@ var react = require('react');
  * 用于生成异步请求，其返回值为包含state和runAsync的数组。需要注意的是，该hook需要用户主动执行返回的runAsync方法来调用加载器
  * 其中state为包含loading、error、data三个值的对象，runAsync则为触发本次异步请求，并且其接收的参数会全部传递给loader加载器
  * 你也可以利用第二个参数，它会在请求的开始、结束阶段分别回调这个参数，并且传递state以及你传递给runAsync方法的参数
- * @params {(...args: any[]) => Promise<any>} loader 异步加载器，例如axios或者fetch请求
- * @params {(state, ...args: any[]) => void} onChange 请求状态变化时的回调
+ * @param loader (...args: any[]) => Promise<any> 异步加载器，例如axios或者fetch请求
+ * @param onChange (state, ...args: any[]) => void 请求状态变化时的回调
  * @return [{ loading, error, data }, (...args: any[]) => void]
  * @example
     const [state, getUserInfo] = useAsyncBase(userId => http.get('/api/userinfo/' + userId), state => {
@@ -136,5 +136,90 @@ function useForceUpdate() {
   }, []);
 }
 
+/**
+ * @description 在某些组件的状态需要支持受控和非受控两种情形时使用
+ * @param parentState 传入的状态，会作为默认值维护，值变化也会导致当前维护状态直接变化
+ * @param processer 对parentState进行加工处理的函数
+ * @return [state, setState] 当前维护的值，修改值的函数
+ * @example
+    function Demo() {
+        const [pNo, setPNo] = useState(1)
+
+        return <div>
+            <Button onClick={() => setPNo(pre => pre + 1)}>父控件增加</Button>
+            <Son pNo={pNo} />
+        </div>
+    }
+
+    function Son({ pNo }: { pNo: number }) {
+        const [no, setNo] = useHalfControlState(pNo, state => state * 10);
+
+        return <div>
+            {no}
+            <Button onClick={() => setNo(pre => pre + 1)}>
+                子控件增加
+            </Button>
+        </div>
+    }
+ */
+function useHalfControlState(parentState, processer) {
+  var ref = react.useRef();
+  var update = useForceUpdate();
+  var processerRef = react.useRef(processer);
+  react.useMemo(function () {
+    ref.current = processerRef.current ? processerRef.current(parentState) : parentState;
+  }, [parentState]);
+  var change = react.useCallback(function (preValue) {
+    var value = typeof preValue === 'function' ? preValue(ref.current) : preValue;
+    ref.current = value;
+    update();
+  }, [update]);
+  return [ref.current, change];
+}
+
+/**
+ * @description 定时执行回调函数
+ * @param callback (...args: any[]) => void 定时需要执行的函数
+ * @param timeout 定时器时间间隔，设为null以停止定时器
+ * @example
+    function Demo() {
+        const [timeout, setTimeout] = useState<number | null>(null)
+        const [no, setNo] = useState(0)
+
+        useInterval(() => setNo(pre => pre + 1), timeout);
+
+        return <div>
+            here
+            {no}
+            <Button onClick={() => setTimeout(300)}>300</Button>
+            <Button onClick={() => setTimeout(500)}>500</Button>
+            <Button onClick={() => setTimeout(null)}>停止</Button>
+        </div>
+    }
+ */
+function useInterval(callback, timeout) {
+  var timerRef = react.useRef(null);
+  var callbackRef = react.useRef(callback);
+  react.useEffect(function () {
+    // 初始化后上一个effect会将resetDep加一，会再次触发本effect，为防止重复设置定时器，判断resetDep不为0时才设定时器
+    if (timeout !== null) {
+      polling();
+      return function () {
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+      };
+    }
+    return;
+    function polling() {
+      callbackRef.current();
+      timerRef.current = setTimeout(polling, timeout || 0);
+    }
+  }, [timeout]);
+}
+
 exports.useAsyncBase = useAsyncBase;
 exports.useForceUpdate = useForceUpdate;
+exports.useHalfControlState = useHalfControlState;
+exports.useInterval = useInterval;
